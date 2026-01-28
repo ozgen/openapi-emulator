@@ -13,24 +13,30 @@ type Route struct {
 	SampleFile string
 }
 
-// BuildRoutes creates a list of routes from the spec.
 func BuildRoutes(spec *Spec) []Route {
+	if spec == nil || spec.Doc3 == nil || spec.Doc3.Paths == nil {
+		return nil
+	}
+
 	var out []Route
-	for swaggerPath, methods := range spec.Paths {
-		for m := range methods {
-			method := strings.ToUpper(m)
+	for swaggerPath, item := range spec.Doc3.Paths.Map() {
+		if item == nil {
+			continue
+		}
+
+		for method := range item.Operations() {
+			m := strings.ToUpper(method)
 			out = append(out, Route{
-				Method:     method,
+				Method:     m,
 				Swagger:    swaggerPath,
 				Regex:      swaggerPathToRegex(swaggerPath),
-				SampleFile: swaggerPathToSampleName(method, swaggerPath),
+				SampleFile: swaggerPathToSampleName(m, swaggerPath),
 			})
 		}
 	}
 	return out
 }
 
-// FindRoute finds the first route matching method + path.
 func FindRoute(routes []Route, method, path string) *Route {
 	method = strings.ToUpper(method)
 	for i := range routes {

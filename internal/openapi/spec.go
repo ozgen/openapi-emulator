@@ -1,203 +1,182 @@
 package openapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
+
+	"github.com/getkin/kin-openapi/openapi2"
+	"github.com/getkin/kin-openapi/openapi2conv"
+	"github.com/getkin/kin-openapi/openapi3"
 )
 
-// Spec supports both Swagger 2.0 and (optionally) OpenAPI 3.x.
 type Spec struct {
-	Swagger     string                    `json:"swagger"` // "2.0"
-	OpenAPI     string                    `json:"openapi"` // "3.x"
-	Produces    []string                  `json:"produces"`
-	Paths       map[string]map[string]any `json:"paths"`
-	Definitions map[string]map[string]any `json:"definitions"` // Swagger 2.0
-	Components  map[string]any            `json:"components"`
-	// OpenAPI 3.x (not required for Swagger2)
+	Doc3 *openapi3.T
+	Doc2 *openapi2.T
 }
 
-// LoadSpec reads swagger.json/openapi.json and parses minimal fields we need.
+type versionProbe struct {
+	Swagger string `json:"swagger"`
+	OpenAPI string `json:"openapi"`
+}
+
 func LoadSpec(path string) (*Spec, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read spec: %w", err)
 	}
 
-	var s Spec
-	if err := json.Unmarshal(b, &s); err != nil {
-		return nil, fmt.Errorf("parse spec json: %w", err)
+	var probe versionProbe
+	_ = json.Unmarshal(b, &probe)
+
+	abs, _ := filepath.Abs(path)
+	loc := &url.URL{Scheme: "file", Path: abs}
+
+	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
+
+	// Swagger 2.0
+	if probe.Swagger == "2.0" {
+		var doc2 openapi2.T
+		if err := json.Unmarshal(b, &doc2); err != nil {
+			return nil, fmt.Errorf("parse swagger2 json: %w", err)
+		}
+
+		doc3, err := openapi2conv.ToV3WithLoader(&doc2, loader, loc)
+		if err != nil {
+			return nil, fmt.Errorf("convert swagger2 -> oas3: %w", err)
+		}
+
+		if err := loader.ResolveRefsIn(doc3, loc); err != nil {
+			return nil, fmt.Errorf("resolve refs: %w", err)
+		}
+
+		_ = doc3.Validate(context.Background())
+
+		return &Spec{Doc2: &doc2, Doc3: doc3}, nil
 	}
 
-	if s.Paths == nil {
-		s.Paths = map[string]map[string]any{}
+	// OpenAPI 3.x
+	var doc3 openapi3.T
+	if err := json.Unmarshal(b, &doc3); err != nil {
+		return nil, fmt.Errorf("parse openapi3 json: %w", err)
 	}
-	if s.Definitions == nil {
-		s.Definitions = map[string]map[string]any{}
+	if err := loader.ResolveRefsIn(&doc3, loc); err != nil {
+		return nil, fmt.Errorf("resolve refs: %w", err)
 	}
+	_ = doc3.Validate(context.Background())
 
-	return &s, nil
+	return &Spec{Doc3: &doc3}, nil
 }
 
 func TryGetExampleBody(spec *Spec, swaggerPath, method string) ([]byte, bool) {
-	if spec == nil || spec.Paths == nil {
+	op := findOperation(spec, swaggerPath, method)
+	if op == nil || op.Responses == nil {
 		return nil, false
 	}
 
-	m := spec.Paths[swaggerPath]
-	if m == nil {
-		return nil, false
-	}
-
-	method = strings.ToLower(method)
-
-	opAny, ok := m[method]
-	if !ok || opAny == nil {
-		return nil, false
-	}
-
-	op, ok := opAny.(map[string]any)
-	if !ok {
-		return nil, false
-	}
-
-	responsesAny, ok := op["responses"]
-	if !ok || responsesAny == nil {
-		return nil, false
-	}
-
-	responses, ok := responsesAny.(map[string]any)
-	if !ok || len(responses) == 0 {
-		return nil, false
-	}
-
-	respObj := pickBestResponse(responses)
-
-	if body, ok := extractOAS3Example(respObj); ok {
-		return body, true
-	}
-
-	if body, ok := extractSwagger2Example(respObj); ok {
-		return body, true
-	}
-
-	schemaAny, ok := respObj["schema"]
-	if !ok || schemaAny == nil {
+	respRef := pickBestResponseRef(op.Responses)
+	if respRef == nil || respRef.Value == nil {
 		b, _ := json.Marshal(map[string]any{"ok": true})
 		return b, true
 	}
 
-	schema, ok := schemaAny.(map[string]any)
-	if !ok {
-		b, _ := json.Marshal(map[string]any{"ok": true})
+	if b, ok := extractExampleFromResponse(respRef.Value); ok {
 		return b, true
 	}
 
-	val := generateFromSchema(spec, schema, map[string]bool{}, 0)
-	b, err := json.Marshal(val)
-	if err != nil {
-		return nil, false
+	if b, ok := generateFromResponseSchema(respRef.Value); ok {
+		return b, true
 	}
+
+	b, _ := json.Marshal(map[string]any{"ok": true})
 	return b, true
 }
 
-func pickBestResponse(responses map[string]any) map[string]any {
+func findOperation(spec *Spec, swaggerPath, method string) *openapi3.Operation {
+	if spec == nil || spec.Doc3 == nil || spec.Doc3.Paths == nil {
+		return nil
+	}
+	item := spec.Doc3.Paths.Find(swaggerPath)
+	if item == nil {
+		return nil
+	}
+	return item.GetOperation(strings.ToUpper(method))
+}
+
+func pickBestResponseRef(resps *openapi3.Responses) *openapi3.ResponseRef {
+	if resps == nil {
+		return nil
+	}
+
+	// Prefer 200/201/202/204 if present
 	for _, code := range []string{"200", "201", "202", "204"} {
-		if rAny, ok := responses[code]; ok && rAny != nil {
-			if r, ok := rAny.(map[string]any); ok {
-				return r
-			}
-		}
-	}
-
-	for code, rAny := range responses {
-		if rAny == nil {
-			continue
-		}
-		if strings.HasPrefix(code, "2") {
-			if r, ok := rAny.(map[string]any); ok {
-				return r
-			}
-		}
-	}
-
-	if rAny, ok := responses["default"]; ok && rAny != nil {
-		if r, ok := rAny.(map[string]any); ok {
+		if r := resps.Value(code); r != nil {
 			return r
 		}
 	}
 
-	for _, rAny := range responses {
-		if rAny == nil {
-			continue
+	// Then any 2xx (lowest first)
+	var twos []int
+	for k := range resps.Map() {
+		if n, err := strconv.Atoi(k); err == nil && n >= 200 && n < 300 {
+			twos = append(twos, n)
 		}
-		if r, ok := rAny.(map[string]any); ok {
+	}
+	sort.Ints(twos)
+	for _, n := range twos {
+		if r := resps.Value(strconv.Itoa(n)); r != nil {
 			return r
 		}
 	}
 
-	return map[string]any{}
+	// Then default
+	if r := resps.Value("default"); r != nil {
+		return r
+	}
+
+	// Otherwise: return any
+	for _, r := range resps.Map() {
+		if r != nil {
+			return r
+		}
+	}
+	return nil
 }
 
-func extractSwagger2Example(resp map[string]any) ([]byte, bool) {
-	exAny, ok := resp["examples"]
-	if !ok || exAny == nil {
-		return nil, false
-	}
-	examples, ok := exAny.(map[string]any)
-	if !ok || len(examples) == 0 {
+func extractExampleFromResponse(resp *openapi3.Response) ([]byte, bool) {
+	if resp == nil || resp.Content == nil {
 		return nil, false
 	}
 
+	// Try common JSON-like content types
 	for _, ct := range []string{"application/json", "application/problem+json", "*/*"} {
-		if v, ok := examples[ct]; ok && v != nil {
-			b, err := json.Marshal(v)
-			return b, err == nil
-		}
-	}
-	for _, v := range examples {
-		if v != nil {
-			b, err := json.Marshal(v)
-			return b, err == nil
-		}
-	}
-	return nil, false
-}
-
-func extractOAS3Example(resp map[string]any) ([]byte, bool) {
-	contentAny, ok := resp["content"]
-	if !ok || contentAny == nil {
-		return nil, false
-	}
-	content, ok := contentAny.(map[string]any)
-	if !ok || len(content) == 0 {
-		return nil, false
-	}
-
-	for _, ct := range []string{"application/json", "application/problem+json", "*/*"} {
-		appAny, ok := content[ct]
-		if !ok || appAny == nil {
-			continue
-		}
-		app, ok := appAny.(map[string]any)
-		if !ok {
+		mt := resp.Content.Get(ct)
+		if mt == nil {
 			continue
 		}
 
-		if ex, ok := app["example"]; ok && ex != nil {
-			b, err := json.Marshal(ex)
-			return b, err == nil
+		// MediaType.Example
+		if mt.Example != nil {
+			if b, err := json.Marshal(mt.Example); err == nil {
+				return b, true
+			}
 		}
 
-		if exsAny, ok := app["examples"]; ok && exsAny != nil {
-			if exs, ok := exsAny.(map[string]any); ok {
-				for _, v := range exs {
-					if exObj, ok := v.(map[string]any); ok && exObj != nil {
-						if val, ok := exObj["value"]; ok && val != nil {
-							b, err := json.Marshal(val)
-							return b, err == nil
-						}
+		if len(mt.Examples) > 0 {
+			for _, exRef := range mt.Examples {
+				if exRef == nil || exRef.Value == nil {
+					continue
+				}
+				if exRef.Value.Value != nil {
+					if b, err := json.Marshal(exRef.Value.Value); err == nil {
+						return b, true
 					}
 				}
 			}
@@ -207,97 +186,88 @@ func extractOAS3Example(resp map[string]any) ([]byte, bool) {
 	return nil, false
 }
 
-func generateFromSchema(spec *Spec, schema map[string]any, visiting map[string]bool, depth int) any {
-	if depth > 6 {
+func generateFromResponseSchema(resp *openapi3.Response) ([]byte, bool) {
+	if resp == nil || resp.Content == nil {
+		return nil, false
+	}
+
+	for _, ct := range []string{"application/json", "application/problem+json", "*/*"} {
+		mt := resp.Content.Get(ct)
+		if mt == nil || mt.Schema == nil {
+			continue
+		}
+
+		val := genFromSchemaRef(mt.Schema, map[string]bool{}, 0)
+		b, err := json.Marshal(val)
+		return b, err == nil
+	}
+
+	return nil, false
+}
+
+func genFromSchemaRef(ref *openapi3.SchemaRef, visiting map[string]bool, depth int) any {
+	if depth > 6 || ref == nil || ref.Value == nil {
 		return map[string]any{}
 	}
 
-	if refAny, ok := schema["$ref"]; ok && refAny != nil {
-		ref, _ := refAny.(string)
-		name := strings.TrimPrefix(ref, "#/definitions/")
-		if name == "" {
-			return map[string]any{}
-		}
-		if visiting[name] {
-			return map[string]any{}
-		}
-		def, ok := spec.Definitions[name]
-		if !ok || def == nil {
-			return map[string]any{}
-		}
-		visiting[name] = true
-		val := generateFromSchema(spec, def, visiting, depth+1)
-		delete(visiting, name)
-		return val
+	s := ref.Value
+
+	// enum wins
+	if len(s.Enum) > 0 {
+		return s.Enum[0]
 	}
 
-	t, _ := schema["type"].(string)
-
-	switch t {
-	case "string":
-		if enumAny, ok := schema["enum"]; ok && enumAny != nil {
-			if arr, ok := enumAny.([]any); ok && len(arr) > 0 {
-				if s, ok := arr[0].(string); ok {
-					return s
-				}
-			}
+	// ARRAY
+	if s.Type != nil && s.Type.Is("array") {
+		if s.Items == nil {
+			return []any{}
 		}
-		if format, _ := schema["format"].(string); format == "date-time" {
+		return []any{genFromSchemaRef(s.Items, visiting, depth+1)}
+	}
+
+	// OBJECT
+	if (s.Type != nil && s.Type.Is("object")) || len(s.Properties) > 0 || s.AdditionalProperties.Schema != nil {
+		return genObject(s, visiting, depth)
+	}
+
+	// PRIMITIVES
+	if s.Type != nil && s.Type.Is("string") {
+		if s.Format == "date-time" {
 			return "2026-01-28T00:00:00Z"
 		}
 		return "string"
-
-	case "integer":
-		return 0
-	case "number":
-		return 0.0
-	case "boolean":
-		return true
-
-	case "array":
-		itemsAny, ok := schema["items"]
-		if !ok || itemsAny == nil {
-			return []any{}
-		}
-		items, ok := itemsAny.(map[string]any)
-		if !ok {
-			return []any{}
-		}
-		return []any{generateFromSchema(spec, items, visiting, depth+1)}
-
-	case "object":
-		out := map[string]any{}
-
-		if apAny, ok := schema["additionalProperties"]; ok && apAny != nil {
-			if ap, ok := apAny.(map[string]any); ok {
-				out["key"] = generateFromSchema(spec, ap, visiting, depth+1)
-				return out
-			}
-		}
-
-		propsAny, ok := schema["properties"]
-		if !ok || propsAny == nil {
-			return out
-		}
-		props, ok := propsAny.(map[string]any)
-		if !ok {
-			return out
-		}
-
-		for k, v := range props {
-			propSchema, ok := v.(map[string]any)
-			if !ok {
-				continue
-			}
-			out[k] = generateFromSchema(spec, propSchema, visiting, depth+1)
-		}
-		return out
-
-	default:
-		if _, ok := schema["properties"]; ok {
-			schema["type"] = "object"
-			return generateFromSchema(spec, schema, visiting, depth+1)
-		}
-		return map[string]any{"ok": true}
 	}
+	if s.Type != nil && s.Type.Is("integer") {
+		return 0
+	}
+	if s.Type != nil && s.Type.Is("number") {
+		return 0.0
+	}
+	if s.Type != nil && s.Type.Is("boolean") {
+		return true
+	}
+
+	// fallback
+	return map[string]any{"ok": true}
+}
+
+func genObject(s *openapi3.Schema, visiting map[string]bool, depth int) any {
+	out := map[string]any{}
+
+	// additionalProperties: schema form
+	if s.AdditionalProperties.Schema != nil {
+		out["key"] = genFromSchemaRef(s.AdditionalProperties.Schema, visiting, depth+1)
+		return out
+	}
+
+	if s.AdditionalProperties.Has != nil && *s.AdditionalProperties.Has {
+		out["key"] = "value"
+	}
+
+	// properties
+	for name, prop := range s.Properties {
+		out[name] = genFromSchemaRef(prop, visiting, depth+1)
+	}
+
+	return out
 }
