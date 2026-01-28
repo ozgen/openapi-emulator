@@ -1,11 +1,12 @@
 package logger_test
 
 import (
-	"github.com/ozgen/openapi-sample-emulator/logger"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ozgen/openapi-sample-emulator/logger"
 
 	"github.com/sirupsen/logrus"
 )
