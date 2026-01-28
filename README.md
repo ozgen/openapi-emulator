@@ -6,6 +6,12 @@ It is mainly intended for local development, integration testing, and CI environ
 
 ---
 
+## Documentation
+
+- [Environment Variables](./docs/ENVIRONMENT_VARIABLES.md) - Configuration options
+
+---
+
 ## What it does
 
 * Reads a Swagger / OpenAPI specification

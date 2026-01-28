@@ -48,7 +48,7 @@ test:
 	done
 
 MODULE := github.com/ozgen/openapi-sample-emulator
-COVER_EXCLUDES := '(^$(MODULE)/cmd$$|^$(MODULE)$$|/(cmd|logger|examples)(/|$$))'
+COVER_EXCLUDES := '(^$(MODULE)/cmd$$|^$(MODULE)$$|/(cmd|logger|examples|docs)(/|$$))'
 
 .PHONY: cover
 cover:
