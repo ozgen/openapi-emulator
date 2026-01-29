@@ -3,10 +3,11 @@ package samples
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ozgen/openapi-sample-emulator/config"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ozgen/openapi-sample-emulator/config"
 )
 
 type Envelope struct {

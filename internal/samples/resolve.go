@@ -2,10 +2,11 @@ package samples
 
 import (
 	"fmt"
-	"github.com/ozgen/openapi-sample-emulator/config"
-	"github.com/ozgen/openapi-sample-emulator/utils"
 	"path/filepath"
 	"strings"
+
+	"github.com/ozgen/openapi-sample-emulator/config"
+	"github.com/ozgen/openapi-sample-emulator/utils"
 )
 
 type ResolverConfig struct {

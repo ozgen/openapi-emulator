@@ -1,10 +1,11 @@
 package samples
 
 import (
-	"github.com/ozgen/openapi-sample-emulator/config"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ozgen/openapi-sample-emulator/config"
 )
 
 func TestLoad_ReadError(t *testing.T) {

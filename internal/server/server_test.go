@@ -231,7 +231,8 @@ func newTestServer(t *testing.T, validation config.ValidationMode, fallback conf
 	  "body": {"id":"123"}
 	}`)
 
-	writeFileWithDirs(t, dir, filepath.Join("items", "POST.json"), `{"status":201,"body":{"created":true}}`)
+	writeFileWithDirs(t, dir, filepath.Join("items", "POST.json"),
+		`{"status":201,"body":{"created":true}}`)
 
 	s, err := New(Config{
 		Port:           "0",
