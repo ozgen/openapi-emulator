@@ -35,22 +35,23 @@ const (
 	LayoutFlat    LayoutMode = "flat"    // only flat
 )
 
+type ScenarioConfig struct {
+	Enabled  bool
+	Filename string
+}
+
 type Config struct {
-	ServerPort       string
-	SpecPath         string
-	SamplesDir       string
-	LogLevel         string
-	RunningEnv       RunningEnv
-	FallbackMode     FallbackMode
-	DebugRoutes      bool
-	ValidationMode   ValidationMode
-	Layout           LayoutMode
-	StateFlow        string // e.g. "requested,running*9,succeeded"
-	StateStepSeconds int    // time-based progression
-	StateStepCalls   int    // count-based progression (if >0, overrides seconds)
-	StateIDParam     string // e.g. "scan_id"
-	StateResetOnLast bool
-	BodyStates       string
+	ServerPort     string
+	SpecPath       string
+	SamplesDir     string
+	LogLevel       string
+	RunningEnv     RunningEnv
+	FallbackMode   FallbackMode
+	DebugRoutes    bool
+	ValidationMode ValidationMode
+	Layout         LayoutMode
+
+	Scenario ScenarioConfig
 }
 
 var Envs = initConfig()
@@ -69,11 +70,9 @@ func initConfig() Config {
 		DebugRoutes:    utils.GetEnvAsBool("DEBUG_ROUTES", false),
 		Layout:         LayoutMode(utils.GetEnv("LAYOUT_MODE", "auto")),
 
-		StateFlow:        utils.GetEnv("STATE_FLOW", ""),
-		StateStepSeconds: utils.GetEnvAsInt("STATE_STEP_SECONDS", 0),
-		StateStepCalls:   utils.GetEnvAsInt("STATE_STEP_CALLS", 1),
-		StateResetOnLast: utils.GetEnvAsBool("STATE_RESET_ON_LAST", false),
-		StateIDParam:     utils.GetEnv("STATE_ID_PARAM", "id"),
-		BodyStates:       utils.GetEnv("BODY_STATES", "start,stop"),
+		Scenario: ScenarioConfig{
+			Enabled:  utils.GetEnvAsBool("SCENARIO_ENABLED", true),
+			Filename: utils.GetEnv("SCENARIO_FILENAME", "scenario.json"),
+		},
 	}
 }
