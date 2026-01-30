@@ -37,6 +37,7 @@ jobs:
       name: ${{ matrix.build.name }}
       build-args: ${{ matrix.build.build-args }}
       prefix: ${{ matrix.build.prefix }}
+      dockerfile: Dockerfile
       images: |
         ghcr.io/${{ github.repository }},enable=true
     secrets: inherit
