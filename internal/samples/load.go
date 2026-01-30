@@ -23,13 +23,13 @@ type Response struct {
 	Body    []byte
 }
 
-// LoadResolved loads a sample response using folder-first resolution, then legacy flat filename.
-func LoadResolved(baseDir, method, swaggerPath, legacyFlatFilename, state string, mode config.LayoutMode) (*Response, error) {
+func LoadResolved(baseDir, method, swaggerTpl, actualPath, legacyFlatFilename string,
+	mode config.LayoutMode, scenarioEnabled bool, scenarioFilename string, engine ScenarioResolver,
+) (*Response, error) {
 	p, err := ResolveSamplePath(ResolverConfig{
 		BaseDir: baseDir,
 		Layout:  mode,
-		State:   state,
-	}, method, swaggerPath, legacyFlatFilename)
+	}, method, swaggerTpl, actualPath, legacyFlatFilename, scenarioEnabled, scenarioFilename, engine)
 	if err != nil {
 		return nil, err
 	}

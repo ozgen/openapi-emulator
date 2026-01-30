@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -31,8 +29,7 @@ type Server struct {
 	routes []openapi.Route
 	log    *logrus.Logger
 
-	flow       *StateFlow
-	bodyStates []string
+	scenario samples.ScenarioResolver
 }
 
 func New(cfg Config) (*Server, error) {
@@ -51,15 +48,10 @@ func New(cfg Config) (*Server, error) {
 		spec:   spec,
 		routes: routes,
 		log:    logger.GetLogger(),
+	}
 
-		flow: NewStateFlow(StateFlowConfig{
-			FlowSpec:        config.Envs.StateFlow,        // e.g. "requested,running*4,succeeded"
-			StepSeconds:     config.Envs.StateStepSeconds, // time-based
-			StepCalls:       config.Envs.StateStepCalls,   // count-based (wins if >0)
-			DefaultStepSecs: 2,
-			ResetOnLast:     config.Envs.StateResetOnLast,
-		}),
-		bodyStates: ParseBodyStateRules(config.Envs.BodyStates), // e.g. "start,stop"
+	if config.Envs.Scenario.Enabled {
+		s.scenario = samples.NewScenarioEngine()
 	}
 
 	return s, nil
@@ -73,17 +65,9 @@ func (s *Server) ListenAndServe() error {
 
 	s.log.Printf("mock listening on %s", addr)
 	s.log.Printf(
-		"spec=%s samples=%s fallback=%s validation=%s layout=%s state_flow=%q step_seconds=%d step_calls=%d id_param=%q body_states=%q",
-		s.cfg.SpecPath,
-		s.cfg.SamplesDir,
-		s.cfg.FallbackMode,
-		s.cfg.ValidationMode,
-		s.cfg.Layout,
-		config.Envs.StateFlow,
-		config.Envs.StateStepSeconds,
-		config.Envs.StateStepCalls,
-		config.Envs.StateIDParam,
-		config.Envs.BodyStates,
+		"spec=%s samples=%s fallback=%s validation=%s layout=%s scenario_enabled=%v scenario_file=%q",
+		s.cfg.SpecPath, s.cfg.SamplesDir, s.cfg.FallbackMode, s.cfg.ValidationMode,
+		s.cfg.Layout, config.Envs.Scenario.Enabled, config.Envs.Scenario.Filename,
 	)
 
 	server := &http.Server{
@@ -135,30 +119,16 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Default state from flow
-	state := ""
-	if s.flow != nil && s.flow.Enabled() {
-		key := makeStateKey(method, rt.Swagger, path, config.Envs.StateIDParam)
-		state = s.flow.Current(key)
-	}
-
-	// Override with body-based state selection
-	if len(s.bodyStates) > 0 {
-		body, err := ReadBodyAndRestore(r)
-		if err == nil {
-			if st, ok := StateFromBodyContains(body, s.bodyStates); ok {
-				state = st
-			}
-		}
-	}
-
 	resp, err := samples.LoadResolved(
 		s.cfg.SamplesDir,
 		method,
 		rt.Swagger,
+		path,
 		rt.SampleFile,
-		state,
 		s.cfg.Layout,
+		config.Envs.Scenario.Enabled,
+		config.Envs.Scenario.Filename,
+		s.scenario,
 	)
 	if err != nil {
 		if s.cfg.FallbackMode == config.FallbackOpenAPIExample {
@@ -176,7 +146,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			"path":               path,
 			"swaggerPath":        rt.Swagger,
 			"legacyFlatFilename": rt.SampleFile,
-			"state":              state,
 			"layout":             s.cfg.Layout,
 			"details":            err.Error(),
 			"hint":               "Create the sample file under SAMPLES_DIR/<path>/<METHOD>[.<state>].json (or legacy flat), or set FALLBACK_MODE=openapi_examples and add examples to swagger.json",
@@ -197,16 +166,4 @@ func (s *Server) DebugRoutes() string {
 		out += fmt.Sprintf("%s %s -> %s\n", r.Method, r.Swagger, r.SampleFile)
 	}
 	return out
-}
-
-func ReadBodyAndRestore(r *http.Request) (string, error) {
-	if r.Body == nil {
-		return "", nil
-	}
-	b, err := io.ReadAll(r.Body)
-	if err != nil {
-		return "", err
-	}
-	r.Body = io.NopCloser(bytes.NewReader(b))
-	return string(b), nil
 }
