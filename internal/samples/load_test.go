@@ -199,12 +199,23 @@ func TestLoadResolved_FoldersMode_LoadsFolderSample(t *testing.T) {
 	baseDir := t.TempDir()
 
 	method := "GET"
-	swaggerPath := "/api/v1/items"
+	swaggerTpl := "/api/v1/items"
+	actualPath := "/api/v1/items"
 	legacyFlat := "GET_api_v1_items.json"
 
 	writeFile(t, baseDir, filepath.Join("api", "v1", "items", "GET.json"), `{"body":{"ok":true}}`)
 
-	resp, err := LoadResolved(baseDir, method, swaggerPath, legacyFlat, "", config.LayoutFolders)
+	resp, err := LoadResolved(
+		baseDir,
+		method,
+		swaggerTpl,
+		actualPath,
+		legacyFlat,
+		config.LayoutFolders,
+		false,
+		"",
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("LoadResolved: %v", err)
 	}
@@ -224,12 +235,23 @@ func TestLoadResolved_FlatMode_LoadsLegacyFlatSample(t *testing.T) {
 	baseDir := t.TempDir()
 
 	method := "GET"
-	swaggerPath := "/api/v1/items"
+	swaggerTpl := "/api/v1/items"
+	actualPath := "/api/v1/items"
 	legacyFlat := "GET_api_v1_items.json"
 
 	writeFile(t, baseDir, legacyFlat, `{"body":{"from":"flat"}}`)
 
-	resp, err := LoadResolved(baseDir, method, swaggerPath, legacyFlat, "", config.LayoutFlat)
+	resp, err := LoadResolved(
+		baseDir,
+		method,
+		swaggerTpl,
+		actualPath,
+		legacyFlat,
+		config.LayoutFlat,
+		false,
+		"",
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("LoadResolved: %v", err)
 	}
@@ -243,13 +265,24 @@ func TestLoadResolved_AutoMode_PrefersFoldersOverFlat(t *testing.T) {
 	baseDir := t.TempDir()
 
 	method := "GET"
-	swaggerPath := "/api/v1/items"
+	swaggerTpl := "/api/v1/items"
+	actualPath := "/api/v1/items"
 	legacyFlat := "GET_api_v1_items.json"
 
 	writeFile(t, baseDir, filepath.Join("api", "v1", "items", "GET.json"), `{"body":{"from":"folders"}}`)
 	writeFile(t, baseDir, legacyFlat, `{"body":{"from":"flat"}}`)
 
-	resp, err := LoadResolved(baseDir, method, swaggerPath, legacyFlat, "", config.LayoutAuto)
+	resp, err := LoadResolved(
+		baseDir,
+		method,
+		swaggerTpl,
+		actualPath,
+		legacyFlat,
+		config.LayoutAuto,
+		false,
+		"",
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("LoadResolved: %v", err)
 	}
@@ -263,10 +296,21 @@ func TestLoadResolved_MissingSample_ReturnsError(t *testing.T) {
 	baseDir := t.TempDir()
 
 	method := "GET"
-	swaggerPath := "/api/v1/does-not-exist"
+	swaggerTpl := "/api/v1/does-not-exist"
+	actualPath := "/api/v1/does-not-exist"
 	legacyFlat := "GET_api_v1_does_not_exist.json"
 
-	_, err := LoadResolved(baseDir, method, swaggerPath, legacyFlat, "", config.LayoutAuto)
+	_, err := LoadResolved(
+		baseDir,
+		method,
+		swaggerTpl,
+		actualPath,
+		legacyFlat,
+		config.LayoutAuto,
+		false,
+		"",
+		nil,
+	)
 	if err == nil {
 		t.Fatalf("expected error")
 	}
