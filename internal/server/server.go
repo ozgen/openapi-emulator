@@ -29,7 +29,7 @@ type Server struct {
 	routes []openapi.Route
 	log    *logrus.Logger
 
-	scenario *samples.ScenarioEngine
+	scenario samples.ScenarioResolver
 }
 
 func New(cfg Config) (*Server, error) {

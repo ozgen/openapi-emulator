@@ -22,7 +22,7 @@ func ResolveSamplePath(
 	method, swaggerTpl, actualPath, legacyFlatFilename string,
 	scenarioEnabled bool,
 	scenarioFilename string,
-	engine *ScenarioEngine,
+	engine ScenarioResolver,
 ) (string, error) {
 	method = strings.ToUpper(method)
 	log := logger.GetLogger()

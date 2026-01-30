@@ -24,7 +24,7 @@ type Response struct {
 }
 
 func LoadResolved(baseDir, method, swaggerTpl, actualPath, legacyFlatFilename string,
-	mode config.LayoutMode, scenarioEnabled bool, scenarioFilename string, engine *ScenarioEngine,
+	mode config.LayoutMode, scenarioEnabled bool, scenarioFilename string, engine ScenarioResolver,
 ) (*Response, error) {
 	p, err := ResolveSamplePath(ResolverConfig{
 		BaseDir: baseDir,

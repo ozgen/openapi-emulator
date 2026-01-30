@@ -13,6 +13,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type ScenarioResolver interface {
+	ResolveScenarioFile(
+		scenarioPath string,
+		sc *Scenario,
+		method string,
+		swaggerTpl string,
+		actualPath string,
+	) (file string, state string, err error)
+}
+
 type Scenario struct {
 	Version int    `json:"version"`
 	Mode    string `json:"mode"` // "step" | "time"
@@ -180,12 +190,10 @@ func (e *ScenarioEngine) resolveTime(scenarioPath string, sc *Scenario, method s
 	e.mu.Lock()
 	t0, ok := e.startedAt[k]
 	if !ok {
-		// if startOn exists, only start when matched; else start on first sight
 		if len(sc.Behavior.StartOn) == 0 || matchesAny(sc.Behavior.StartOn, method, actualPath) {
 			t0 = time.Now()
 			e.startedAt[k] = t0
 		} else {
-			// not started yet; treat as first timeline state
 			t0 = time.Now()
 			e.startedAt[k] = t0
 		}
@@ -194,7 +202,6 @@ func (e *ScenarioEngine) resolveTime(scenarioPath string, sc *Scenario, method s
 	elapsedMs := elapsed.Milliseconds()
 	e.mu.Unlock()
 
-	// choose last milestone where afterMs <= elapsed
 	chosen := sc.Timeline[0]
 	for _, t := range sc.Timeline {
 		if t.AfterMs <= elapsedMs {
@@ -204,7 +211,6 @@ func (e *ScenarioEngine) resolveTime(scenarioPath string, sc *Scenario, method s
 		}
 	}
 
-	// if elapsed beyond last and repeatLast false, we still return last (v1 keep safe)
 	return chosen.File, chosen.State, nil
 }
 
@@ -212,8 +218,6 @@ func scenarioKey(scenarioPath, keyVal string) string {
 	return scenarioPath + "::" + keyVal
 }
 
-// matchesAny: if rule.Path is empty -> method-only match.
-// if path is provided, match against actualPath with {param} placeholders.
 func matchesAny(rules []MatchRule, method string, actualPath string) bool {
 	method = strings.ToUpper(method)
 	for _, r := range rules {
@@ -231,7 +235,6 @@ func matchesAny(rules []MatchRule, method string, actualPath string) bool {
 	return false
 }
 
-// matchTemplatePath supports "/api/v1/items/{id}" against "/api/v1/items/123".
 func matchTemplatePath(tpl, actual string) bool {
 	tplParts := strings.Split(strings.Trim(tpl, "/"), "/")
 	actParts := strings.Split(strings.Trim(actual, "/"), "/")
