@@ -49,7 +49,7 @@ func (p *RouterProvider) FindRoute(method, path string) *Route {
 			continue
 		}
 
-		score := routeSpecificityScore(r.Swagger)
+		score := p.routeSpecificityScore(r.Swagger)
 		if score > bestScore {
 			best = r
 			bestScore = score
@@ -59,7 +59,11 @@ func (p *RouterProvider) FindRoute(method, path string) *Route {
 	return best
 }
 
-func routeSpecificityScore(swaggerPath string) int {
+func (p *RouterProvider) GetRoutes() []Route {
+	return p.routes
+}
+
+func (p *RouterProvider) routeSpecificityScore(swaggerPath string) int {
 	parts := strings.Split(strings.Trim(swaggerPath, "/"), "/")
 	score := 0
 	for _, p := range parts {
@@ -72,10 +76,6 @@ func routeSpecificityScore(swaggerPath string) int {
 
 	score += len(parts)
 	return score
-}
-
-func (p *RouterProvider) GetRoutes() []Route {
-	return p.routes
 }
 
 func swaggerPathToSampleName(method, swaggerPath string) string {
